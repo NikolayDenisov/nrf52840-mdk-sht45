@@ -97,7 +97,7 @@ typedef struct sht4x_handle_s {
   uint8_t (*iic_deinit)(void); /**< point to an iic_deinit function address */
   uint8_t (*iic_write_cmd)(
       uint8_t addr, uint8_t *buf,
-      uint8_t len); /**< point to an iic_write_cmd function address */
+      uint16_t len); /**< point to an iic_write_cmd function address */
   uint8_t (*iic_read_cmd)(
       uint8_t addr, uint8_t *buf,
       uint8_t len); /**< point to an iic_read_cmd function address */

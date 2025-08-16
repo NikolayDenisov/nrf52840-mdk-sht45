@@ -18,7 +18,6 @@ SRC_FILES += \
   $(SDK_ROOT)/external/segger_rtt/SEGGER_RTT_printf.c \
   $(SDK_ROOT)/modules/nrfx/mdk/system_nrf52840.c \
   $(PROJ_DIR)/src/uart.c \
-  $(PROJ_DIR)/src/twi.c \
   $(PROJ_DIR)/src/driver_sht4x.c \
 
 # Include folders common to all targets

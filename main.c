@@ -4,13 +4,14 @@
 #include "nrf52840_bitfields.h"
 #include "nrf_delay.h"
 #include "uart.h"
+#include <stdarg.h>
 
 #define SCL_PIN 6
 #define SDA_PIN 8
 #define SHT4X_ADDR SHT4X_ADDRESS_0
 
-static uint8_t iic_init(void) {
-
+uint8_t iic_init(void) {
+  NRF_CLOCK->TASKS_HFCLKSTART = 1;
   // Конфигурация пинов SDA и SCL (подставьте свои номера пинов)
   NRF_P0->PIN_CNF[SDA_PIN] =
       (GPIO_PIN_CNF_DIR_Input << GPIO_PIN_CNF_DIR_Pos) | // SDA
@@ -35,16 +36,15 @@ static uint8_t iic_init(void) {
   return 0;
 }
 
-static uint8_t iic_deinit(void) {
+uint8_t iic_deinit(void) {
   NRF_TWIM0->ENABLE = 0;
   return 0;
 }
 
-static uint8_t iic_write_cmd(uint8_t addr, uint8_t *buf, uint8_t len) {
-  NRF_TWIM0->ADDRESS = addr;
+uint8_t iic_write_cmd(uint8_t addr, uint8_t *buf, uint16_t len) {
+  NRF_TWIM0->ADDRESS = addr >> 1;
   NRF_TWIM0->TXD.PTR = (uint32_t)buf;
   NRF_TWIM0->TXD.MAXCNT = len;
-  NRF_TWIM0->TXD.LIST = 0;
   NRF_TWIM0->SHORTS = TWIM_SHORTS_LASTTX_STOP_Msk;
   NRF_TWIM0->TASKS_STARTTX = 1;
 
@@ -54,22 +54,54 @@ static uint8_t iic_write_cmd(uint8_t addr, uint8_t *buf, uint8_t len) {
   return 0;
 }
 
-static uint8_t iic_read_cmd(uint8_t addr, uint8_t *buf, uint8_t len) {
-  NRF_TWIM0->ADDRESS = addr;
+uint8_t iic_read_cmd(uint8_t addr, uint8_t *buf, uint8_t len) {
+  NRF_TWIM0->ADDRESS = addr >> 1;
   NRF_TWIM0->RXD.PTR = (uint32_t)buf;
   NRF_TWIM0->RXD.MAXCNT = len;
-  NRF_TWIM0->RXD.LIST = 0;
   NRF_TWIM0->SHORTS = TWIM_SHORTS_LASTRX_STOP_Msk;
+  NRF_TWI0->EVENTS_STOPPED = 0;
   NRF_TWIM0->TASKS_STARTRX = 1;
+  while (!NRF_TWI0->EVENTS_STOPPED)
+    ;
 
-  while (!NRF_TWIM0->EVENTS_LASTRX) {
-  }
-  NRF_TWIM0->EVENTS_LASTRX = 0;
+  // Сбросим для следующего раза
+  NRF_TWI0->EVENTS_STOPPED = 0;
+  return 0;
 }
 
-static void delay_ms(uint32_t ms) { nrf_delay_ms(ms); }
+void delay_ms(uint32_t ms) { nrf_delay_ms(ms); }
 
-static void debug_print(const char *const fmt, ...) { uart_send_string(fmt); }
+void debug_print(const char *const fmt, ...) {
+  char buffer[128]; // временный буфер для строки
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  uart_send_string(buffer);
+}
+
+void clock_initialization(void) {
+  NRF_CLOCK->EVENTS_HFCLKSTARTED = 0;
+  NRF_CLOCK->TASKS_HFCLKSTART = 1;
+  while (NRF_CLOCK->EVENTS_HFCLKSTARTED == 0)
+    ;
+
+  NRF_CLOCK->LFCLKSRC = (CLOCK_LFCLKSRC_SRC_Xtal << CLOCK_LFCLKSRC_SRC_Pos);
+  NRF_CLOCK->EVENTS_LFCLKSTARTED = 0;
+  NRF_CLOCK->TASKS_LFCLKSTART = 1;
+  while (NRF_CLOCK->EVENTS_LFCLKSTARTED == 0)
+    ;
+}
+
+void print_float(const char *label, float value) {
+  int int_part = (int)value;
+  int frac_part = (int)((value - int_part) * 100); // 2 знака после запятой
+  if (frac_part < 0)
+    frac_part = -frac_part; // на случай отриц. числа
+
+  debug_print("%s%d.%02d", label, int_part, frac_part);
+}
 
 int main(void) {
   uart_init();
@@ -78,6 +110,8 @@ int main(void) {
   sht4x_handle_t sht_handle;
   uint16_t temp_raw, hum_raw;
   float temp_c, hum_perc;
+
+  clock_initialization();
 
   DRIVER_SHT4X_LINK_INIT(&sht_handle, sht4x_handle_t);
   DRIVER_SHT4X_LINK_IIC_INIT(&sht_handle, iic_init);
@@ -96,7 +130,10 @@ int main(void) {
   while (1) {
     if (sht4x_read(&sht_handle, SHT4X_MODE_HIGH_PRECISION_WITH_NO_HEATER,
                    &temp_raw, &temp_c, &hum_raw, &hum_perc) == 0) {
-      debug_print("T=%.2f °C, H=%.2f %%\n", temp_c, hum_perc);
+      print_float("T=", temp_c);
+      debug_print(" °C, ");
+      print_float("H=", hum_perc);
+      debug_print(" %%\r\n");
     } else {
       debug_print("Read error\n");
     }
