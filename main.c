@@ -137,6 +137,6 @@ int main(void) {
     } else {
       debug_print("Read error\n");
     }
-    nrf_delay_ms(1000);
+    nrf_delay_ms(5000);
   }
 }
